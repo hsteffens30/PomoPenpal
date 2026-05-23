@@ -41,22 +41,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem = item
     }
 
-    private func backgroundNSColor(for phase: TimerEngine.Phase) -> NSColor {
-        switch phase {
-        case .idle:       return NSColor(red: 1.000, green: 0.957, blue: 0.910, alpha: 1.0) // cream
-        case .working:    return NSColor(red: 0.769, green: 0.353, blue: 0.353, alpha: 1.0) // muted red
-        case .shortBreak: return NSColor(red: 0.416, green: 0.596, blue: 0.471, alpha: 1.0) // sage
-        case .longBreak:  return NSColor(red: 0.353, green: 0.580, blue: 0.565, alpha: 1.0) // dusty teal
-        }
-    }
-
-    private func textNSColor(for phase: TimerEngine.Phase) -> NSColor {
-        switch phase {
-        case .idle: return NSColor(red: 0.20, green: 0.18, blue: 0.16, alpha: 1.0) // dark on cream
-        default:    return NSColor(red: 1.000, green: 0.957, blue: 0.910, alpha: 1.0) // cream on saturated
-        }
-    }
-
     private func setupWindow() {
         let hosting = NSHostingController(rootView: TimerView(engine: engine))
 
@@ -117,13 +101,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let phase = engine.phase
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.menuBarFont(ofSize: 0),
-            .foregroundColor: textNSColor(for: phase)
+            .foregroundColor: Palette.inkNS(for: phase)
         ]
         button.attributedTitle = NSAttributedString(
             string: engine.formattedTime,
             attributes: attrs
         )
-        button.layer?.backgroundColor = backgroundNSColor(for: phase).cgColor
+        button.layer?.backgroundColor = Palette.backgroundNS(for: phase).cgColor
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
