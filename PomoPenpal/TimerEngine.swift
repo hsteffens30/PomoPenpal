@@ -38,6 +38,9 @@ final class TimerEngine {
     var completedWorkSessions: Int = 0
 
     var onTick: (() -> Void)?
+    /// Fired exactly once each time a work session ends (work → break transition).
+    /// Not fired when Skip is pressed from the idle state.
+    var onWorkSessionComplete: ((Date) -> Void)?
 
     private var timer: Timer?
 
@@ -108,6 +111,7 @@ final class TimerEngine {
     }
 
     private func advance() {
+        let wasWorking = phase == .working
         switch phase {
         case .idle, .working:
             completedWorkSessions += 1
@@ -116,5 +120,8 @@ final class TimerEngine {
             phase = .working
         }
         secondsRemaining = phase.durationSeconds
+        if wasWorking {
+            onWorkSessionComplete?(Date())
+        }
     }
 }

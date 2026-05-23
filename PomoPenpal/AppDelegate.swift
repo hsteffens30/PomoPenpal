@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import SwiftData
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -11,19 +12,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let engine = TimerEngine()
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
+    private var modelContainer: ModelContainer!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        setupModelContainer()
         setupStatusItem()
         setupWindow()
 
         engine.onTick = { [weak self] in
             self?.refreshStatusItemTitle()
         }
+        engine.onWorkSessionComplete = { [weak self] date in
+            self?.recordCompletedLetter(at: date)
+        }
         refreshStatusItemTitle()
 
         // Show the window on launch (alongside the menu-bar entry).
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    private func setupModelContainer() {
+        let schema = Schema([Letter.self])
+        do {
+            modelContainer = try ModelContainer(
+                for: schema,
+                configurations: [ModelConfiguration(schema: schema)]
+            )
+        } catch {
+            // On-disk container init shouldn't fail for a fresh sandbox container,
+            // but fall back to in-memory rather than crashing the menu-bar app.
+            print("PomoPenpal: persistent ModelContainer failed (\(error)); using in-memory store")
+            modelContainer = try! ModelContainer(
+                for: schema,
+                configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]
+            )
+        }
+    }
+
+    private func recordCompletedLetter(at date: Date) {
+        let ctx = modelContainer.mainContext
+        ctx.insert(Letter(dateEarned: date))
+        do {
+            try ctx.save()
+        } catch {
+            print("PomoPenpal: failed to save Letter: \(error)")
+        }
     }
 
     private func setupStatusItem() {
@@ -42,7 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func setupWindow() {
-        let hosting = NSHostingController(rootView: TimerView(engine: engine))
+        let root = TimerView(engine: engine)
+            .modelContainer(modelContainer)
+        let hosting = NSHostingController(rootView: root)
 
         let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
