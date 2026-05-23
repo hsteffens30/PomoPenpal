@@ -76,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func setupWindow() {
-        let root = TimerView(engine: engine)
+        let root = WindowRootView(engine: engine)
             .modelContainer(modelContainer)
         let hosting = NSHostingController(rootView: root)
 
