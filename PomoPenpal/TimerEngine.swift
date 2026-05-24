@@ -41,6 +41,8 @@ final class TimerEngine {
     /// Fired exactly once each time a work session ends (work → break transition).
     /// Not fired when Skip is pressed from the idle state.
     var onWorkSessionComplete: ((Date) -> Void)?
+    /// Fired after every state change so the host can persist to UserDefaults.
+    var onStateChanged: (() -> Void)?
 
     private var timer: Timer?
 
@@ -58,12 +60,14 @@ final class TimerEngine {
         isRunning = true
         startTicking()
         onTick?()
+        onStateChanged?()
     }
 
     func pause() {
         isRunning = false
         stopTicking()
         onTick?()
+        onStateChanged?()
     }
 
     func reset() {
@@ -73,6 +77,7 @@ final class TimerEngine {
         secondsRemaining = Phase.working.durationSeconds
         completedWorkSessions = 0
         onTick?()
+        onStateChanged?()
     }
 
     func skip() {
@@ -80,6 +85,7 @@ final class TimerEngine {
         isRunning = false
         stopTicking()
         onTick?()
+        onStateChanged?()
     }
 
     private func startTicking() {
@@ -108,6 +114,7 @@ final class TimerEngine {
             stopTicking()
         }
         onTick?()
+        onStateChanged?()
     }
 
     private func advance() {

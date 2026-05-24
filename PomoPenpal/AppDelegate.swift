@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupModelContainer()
+        TimerStateStore.restore(into: engine)
         setupStatusItem()
         setupWindow()
 
@@ -24,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         engine.onWorkSessionComplete = { [weak self] date in
             self?.recordCompletedLetter(at: date)
+        }
+        engine.onStateChanged = { [weak self] in
+            guard let self else { return }
+            TimerStateStore.save(self.engine)
         }
         refreshStatusItemTitle()
 
