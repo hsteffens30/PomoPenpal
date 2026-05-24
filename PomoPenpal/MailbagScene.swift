@@ -76,6 +76,14 @@ final class MailbagScene: SKScene {
         physicsWorld.speed = 1.0
 
         bestPileHeight = CGFloat(UserDefaults.standard.double(forKey: bestHeightKey))
+        // Defensive: an earlier version could store off-screen values when a
+        // mid-air letter's transient y was counted. If the stored peak is
+        // above the visible area, treat it as corrupt and reset so future
+        // legitimate piles can register a new best.
+        if size.height > 0, bestPileHeight > size.height {
+            bestPileHeight = 0
+            UserDefaults.standard.set(0, forKey: bestHeightKey)
+        }
 
         rebuildWalls()
         installChalkMark()
@@ -334,9 +342,16 @@ final class MailbagScene: SKScene {
         // possible empty-scene render pathology while idle.
         guard !letterOrder.isEmpty, size.height > 0 else { return }
 
-        // Update peak-height chalk-mark.
+        // Only count letters inside the visible area. A mid-air falling letter
+        // that just spawned at y = size.height + 24 is a projectile heading
+        // toward the pile, not part of the pile itself — counting its transient
+        // y here would falsely trip the overflow detector every frame for the
+        // ~30 frames it takes to fall in, and sweep every existing letter into
+        // the compacted block before the new one even lands.
         var topY: CGFloat = 0
-        for n in letterOrder where n.position.y > topY { topY = n.position.y }
+        for n in letterOrder where n.position.y <= size.height && n.position.y > topY {
+            topY = n.position.y
+        }
 
         if topY > bestPileHeight {
             bestPileHeight = topY
