@@ -22,16 +22,21 @@ final class MailbagScene: SKScene {
     /// Extra height added to each letter's physics body (split evenly above/below
     /// the visible sprite) so stacked letters settle with a visible gap.
     private let verticalBodyPadding: CGFloat = 4
-    private let chalkColor = NSColor(hex: 0xE0D0B6)
-    private let backWallColor = NSColor(hex: 0xEDDCC5)  // a touch darker than cream
+
+    // Use explicit sRGB so SpriteKit's Metal-backed pipeline doesn't pick up an
+    // unexpected color space (which on macOS can wash cream into off-white).
+    private let backWallColor    = NSColor(srgbRed: 0.860, green: 0.795, blue: 0.685, alpha: 1.0) // ~#DBCBAF — clearly darker than letter cream
+    private let letterFillColor  = NSColor(srgbRed: 0.969, green: 0.914, blue: 0.851, alpha: 1.0) // #F7E9D9
+    private let letterStrokeColor = NSColor(srgbRed: 0.687, green: 0.601, blue: 0.479, alpha: 1.0) // ~#AF997A — soft taupe edge
+    private let chalkColor       = NSColor(srgbRed: 0.878, green: 0.815, blue: 0.713, alpha: 1.0) // ~#E0D0B6
 
     // Physics tuning
-    private let gravityY: CGFloat = -8.0
+    private let gravityY: CGFloat = -4.5  // gentler than default so the fall reads as a settle, not a streak
     private let letterDensity: CGFloat = 1.2
     private let letterRestitution: CGFloat = 0.05  // letters thud, no bounce
     private let letterFriction: CGFloat = 0.7
-    private let letterLinearDamping: CGFloat = 0.3
-    private let letterAngularDamping: CGFloat = 0.6
+    private let letterLinearDamping: CGFloat = 0.5
+    private let letterAngularDamping: CGFloat = 0.7
 
     // Overflow: when the pile crosses ~75% window height, oldest letters merge
     // into a single static block at the bottom so the user-visible pile never
@@ -42,8 +47,11 @@ final class MailbagScene: SKScene {
     private let bestHeightKey = "MailbagScene.bestPileHeight"
 
     // Tracked nodes — oldest first, so we can compact from the front.
-    private var letterOrder: [SKSpriteNode] = []
+    // Stored as SKNode so the array can hold either SKShapeNode letters or
+    // future representations without churn.
+    private var letterOrder: [SKNode] = []
     private var compactedBlock: SKSpriteNode?
+    private var compactedDivider: SKShapeNode?
     private var chalkMark: SKShapeNode?
 
     // Pluck/drag state.
@@ -125,13 +133,38 @@ final class MailbagScene: SKScene {
     }
 
     private func installCompactedBlock() {
-        // Hairline divider + static block that grows as oldest letters merge in.
-        let block = SKSpriteNode(color: Palette.creamNS, size: CGSize(width: size.width, height: 0))
+        // Static block that grows as oldest letters merge in.
+        let block = SKSpriteNode(color: letterFillColor, size: CGSize(width: size.width, height: 0))
         block.anchorPoint = CGPoint(x: 0.5, y: 0)
         block.position = CGPoint(x: size.width / 2, y: 0)
         block.zPosition = -0.5
         addChild(block)
         compactedBlock = block
+
+        // Hairline divider on top so the block reads as compacted letters and
+        // not as one solid extension of the active pile above.
+        let divider = SKShapeNode()
+        divider.strokeColor = letterStrokeColor
+        divider.lineWidth = 1.0
+        divider.alpha = 0.85
+        divider.zPosition = -0.4
+        divider.isHidden = true
+        addChild(divider)
+        compactedDivider = divider
+    }
+
+    private func updateCompactedDivider() {
+        guard let block = compactedBlock, let divider = compactedDivider else { return }
+        if block.size.height <= 0.5 {
+            divider.isHidden = true
+            return
+        }
+        let topY = block.size.height
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 4, y: topY))
+        path.addLine(to: CGPoint(x: size.width - 4, y: topY))
+        divider.path = path
+        divider.isHidden = false
     }
 
     // MARK: - Adding letters
@@ -159,6 +192,7 @@ final class MailbagScene: SKScene {
             block.size = CGSize(width: size.width,
                                 height: CGFloat(preCompactCount) * letterSize.height)
         }
+        updateCompactedDivider()
 
         let visibleSeen = Array(sortedSeen.dropFirst(preCompactCount))
         let baseY = (compactedBlock?.size.height ?? 0) + effectiveLetterHeight / 2
@@ -202,7 +236,13 @@ final class MailbagScene: SKScene {
     }
 
     private func spawnLetterSprite(at position: CGPoint, rotation: CGFloat) {
-        let node = SKSpriteNode(color: Palette.creamNS, size: letterSize)
+        // SKShapeNode rather than SKSpriteNode so each letter has a hairline
+        // taupe stroke around its cream fill — gives every letter a visible
+        // edge regardless of how subtly the back-wall color differs from cream.
+        let node = SKShapeNode(rectOf: letterSize)
+        node.fillColor = letterFillColor
+        node.strokeColor = letterStrokeColor
+        node.lineWidth = 1.0
         node.position = position
         node.zRotation = rotation
         node.zPosition = 1
@@ -244,7 +284,9 @@ final class MailbagScene: SKScene {
 
     override func mouseDown(with event: NSEvent) {
         let p = event.location(in: self)
-        let hits = nodes(at: p).compactMap { $0 as? SKSpriteNode }
+        // Letters are SKShapeNodes (not SKSpriteNodes) — match against the
+        // tracked node array by reference identity rather than casting.
+        let hits = nodes(at: p)
         guard let target = hits.first(where: { letterOrder.contains($0) }),
               let body = target.physicsBody else { return }
 
@@ -316,6 +358,7 @@ final class MailbagScene: SKScene {
         if let block = compactedBlock {
             block.size = CGSize(width: size.width, height: block.size.height + letterSize.height)
         }
+        updateCompactedDivider()
         onCountsChanged?()
     }
 }
