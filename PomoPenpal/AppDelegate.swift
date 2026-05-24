@@ -13,8 +13,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
     private var modelContainer: ModelContainer!
+    private let chime = ChimePlayer()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UserDefaults.standard.register(defaults: [
+            ChimePlayer.soundEnabledKey: true
+        ])
         setupModelContainer()
         TimerStateStore.restore(into: engine)
         setupStatusItem()
@@ -24,7 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.refreshStatusItemTitle()
         }
         engine.onWorkSessionComplete = { [weak self] date in
-            self?.recordCompletedLetter(at: date)
+            guard let self else { return }
+            self.recordCompletedLetter(at: date)
+            self.chime.playWorkEnd()
         }
         engine.onStateChanged = { [weak self] in
             guard let self else { return }
@@ -125,6 +131,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func showContextMenu() {
         guard let statusItem else { return }
         let menu = NSMenu()
+
+        let soundItem = NSMenuItem(
+            title: "Sound",
+            action: #selector(toggleSound(_:)),
+            keyEquivalent: ""
+        )
+        soundItem.target = self
+        soundItem.state = UserDefaults.standard.bool(forKey: ChimePlayer.soundEnabledKey) ? .on : .off
+        menu.addItem(soundItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         menu.addItem(
             NSMenuItem(
                 title: "Quit PomoPenpal",
@@ -135,6 +153,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+    }
+
+    @objc private func toggleSound(_ sender: NSMenuItem) {
+        let current = UserDefaults.standard.bool(forKey: ChimePlayer.soundEnabledKey)
+        UserDefaults.standard.set(!current, forKey: ChimePlayer.soundEnabledKey)
     }
 
     private func refreshStatusItemTitle() {
