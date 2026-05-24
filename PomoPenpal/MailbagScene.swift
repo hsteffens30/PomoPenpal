@@ -7,6 +7,10 @@
 //  window drag, and can be plucked with click-and-hold. The all-time peak
 //  pile height is preserved as a faint chalk-mark on the back wall.
 //
+//  Each letter's physics body is taller than its visible sprite by
+//  `verticalBodyPadding` so the pile settles with visible gaps between
+//  stacked letters (matches the "padding between letters" design fix).
+//
 
 import AppKit
 import SpriteKit
@@ -14,7 +18,10 @@ import SpriteKit
 final class MailbagScene: SKScene {
 
     // Visual constants — tune by feel (Decision #13, album-layout-ideas.md "Open questions").
-    private let letterSize = CGSize(width: 80, height: 3)
+    private let letterSize = CGSize(width: 140, height: 8)
+    /// Extra height added to each letter's physics body (split evenly above/below
+    /// the visible sprite) so stacked letters settle with a visible gap.
+    private let verticalBodyPadding: CGFloat = 4
     private let chalkColor = NSColor(hex: 0xE0D0B6)
     private let backWallColor = NSColor(hex: 0xEDDCC5)  // a touch darker than cream
 
@@ -48,6 +55,9 @@ final class MailbagScene: SKScene {
 
     // External hook for "letters changed; update count readout" — set by AlbumView.
     var onCountsChanged: (() -> Void)?
+
+    /// Effective vertical footprint of one stacked letter, including the body padding.
+    var effectiveLetterHeight: CGFloat { letterSize.height + verticalBodyPadding }
 
     override func didMove(to view: SKView) {
         super.didMove(to: view)
@@ -126,44 +136,81 @@ final class MailbagScene: SKScene {
 
     // MARK: - Adding letters
 
-    /// Clear and repopulate the scene with the given letters (Sorted oldest → newest).
-    /// Drops happen staggered so the pile builds up visibly instead of in a single thud.
-    func reload(with letters: [Letter]) {
+    /// Repopulate the scene. `seen` letters appear at rest at the bottom (no
+    /// fall animation — the user already watched these drop on a prior open).
+    /// `new` letters drop in from above with a staggered fall.
+    ///
+    /// If the count of `seen` letters alone would overflow the visible heap,
+    /// the oldest are merged into the static compacted block up front so the
+    /// runtime overflow detector doesn't have to chew through them one frame
+    /// at a time post-open.
+    func reload(seen: [Letter], new: [Letter]) {
         letterOrder.forEach { $0.removeFromParent() }
         letterOrder.removeAll()
-        if let block = compactedBlock {
-            block.size.height = 0
+        if let block = compactedBlock { block.size.height = 0 }
+
+        let sortedSeen = seen.sorted { $0.dateEarned < $1.dateEarned }
+        let sortedNew = new.sorted { $0.dateEarned < $1.dateEarned }
+
+        // Pre-compact: any seen letters that wouldn't fit fold into the block.
+        let visibleCap = max(0, Int(size.height * overflowFraction / max(effectiveLetterHeight, 1)))
+        let preCompactCount = max(0, sortedSeen.count - visibleCap)
+        if preCompactCount > 0, let block = compactedBlock {
+            block.size = CGSize(width: size.width,
+                                height: CGFloat(preCompactCount) * letterSize.height)
         }
 
-        let sorted = letters.sorted { $0.dateEarned < $1.dateEarned }
-        for (i, letter) in sorted.enumerated() {
-            let delay = SKAction.wait(forDuration: Double(i) * 0.04)
-            let spawn = SKAction.run { [weak self, letter] in
-                self?.spawnLetterSprite(seed: letter.id.uuidString.hashValue)
+        let visibleSeen = Array(sortedSeen.dropFirst(preCompactCount))
+        let baseY = (compactedBlock?.size.height ?? 0) + effectiveLetterHeight / 2
+
+        // Place visible seen at calculated stack positions with a small x-jitter.
+        for (i, _) in visibleSeen.enumerated() {
+            let y = baseY + CGFloat(i) * effectiveLetterHeight
+            let xJitter = CGFloat.random(in: -18...18)
+            spawnLetterSprite(
+                at: CGPoint(x: clampedX(size.width / 2 + xJitter), y: y),
+                rotation: CGFloat.random(in: -0.04...0.04)
+            )
+        }
+
+        // Drop new letters with stagger so they pile rather than co-spawn.
+        for (i, _) in sortedNew.enumerated() {
+            let delay = SKAction.wait(forDuration: Double(i) * 0.06)
+            let spawn = SKAction.run { [weak self] in
+                guard let self else { return }
+                let xJitter = CGFloat.random(in: -26...26)
+                self.spawnLetterSprite(
+                    at: CGPoint(x: self.clampedX(self.size.width / 2 + xJitter),
+                                y: self.size.height + 24),
+                    rotation: CGFloat.random(in: -0.09...0.09)
+                )
             }
             run(SKAction.sequence([delay, spawn]))
         }
+
         onCountsChanged?()
     }
 
     /// Drop a single new letter into a live scene (mid-session work-end).
     func dropOneLetter() {
-        spawnLetterSprite(seed: Int(Date().timeIntervalSinceReferenceDate * 1000))
+        let xJitter = CGFloat.random(in: -26...26)
+        spawnLetterSprite(
+            at: CGPoint(x: clampedX(size.width / 2 + xJitter), y: size.height + 24),
+            rotation: CGFloat.random(in: -0.09...0.09)
+        )
         onCountsChanged?()
     }
 
-    private func spawnLetterSprite(seed: Int) {
-        var rng = SeededRandom(seed: UInt64(bitPattern: Int64(seed)))
-        let xJitter = CGFloat(rng.next(in: -30...30))
-        let rotJitter = CGFloat(rng.next(in: -0.09...0.09))  // ±~5°
-
+    private func spawnLetterSprite(at position: CGPoint, rotation: CGFloat) {
         let node = SKSpriteNode(color: Palette.creamNS, size: letterSize)
-        node.position = CGPoint(x: max(letterSize.width, size.width / 2 + xJitter),
-                                y: size.height + 20)
-        node.zRotation = rotJitter
+        node.position = position
+        node.zRotation = rotation
         node.zPosition = 1
 
-        let body = SKPhysicsBody(rectangleOf: letterSize)
+        // Body is taller than the sprite so stacked letters settle with a visible gap.
+        let bodySize = CGSize(width: letterSize.width,
+                              height: letterSize.height + verticalBodyPadding)
+        let body = SKPhysicsBody(rectangleOf: bodySize)
         body.density = letterDensity
         body.restitution = letterRestitution
         body.friction = letterFriction
@@ -175,6 +222,11 @@ final class MailbagScene: SKScene {
 
         addChild(node)
         letterOrder.append(node)
+    }
+
+    private func clampedX(_ x: CGFloat) -> CGFloat {
+        let halfW = letterSize.width / 2
+        return max(halfW + 2, min(size.width - halfW - 2, x))
     }
 
     // MARK: - Window drag impulse
@@ -265,25 +317,5 @@ final class MailbagScene: SKScene {
             block.size = CGSize(width: size.width, height: block.size.height + letterSize.height)
         }
         onCountsChanged?()
-    }
-}
-
-// MARK: - Seeded RNG for visible-jitter reproducibility per letter ID
-
-private struct SeededRandom {
-    var state: UInt64
-    init(seed: UInt64) { self.state = seed == 0 ? 0xDEADBEEF : seed }
-
-    mutating func nextRaw() -> UInt64 {
-        state &+= 0x9E3779B97F4A7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
-        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
-        return z ^ (z >> 31)
-    }
-
-    mutating func next(in range: ClosedRange<Double>) -> Double {
-        let r = Double(nextRaw() % 1_000_000) / 1_000_000
-        return range.lowerBound + r * (range.upperBound - range.lowerBound)
     }
 }
