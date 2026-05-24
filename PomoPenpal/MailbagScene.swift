@@ -38,10 +38,13 @@ final class MailbagScene: SKScene {
     private let letterLinearDamping: CGFloat = 0.5
     private let letterAngularDamping: CGFloat = 0.7
 
-    // Overflow: when the pile crosses ~75% window height, oldest letters merge
-    // into a single static block at the bottom so the user-visible pile never
-    // clips the top of the 240pt window.
-    private let overflowFraction: CGFloat = 0.75
+    // Overflow management. A cap on visible individual letters keeps the pile
+    // from spawning letters above the visible window — anything beyond the cap
+    // folds into a compacted block at the bottom that grows half as fast per
+    // letter as a normal stacked letter would, up to a maxBlockHeight cap.
+    private let maxVisibleLetters: Int = 13
+    private let blockHeightPerLetter: CGFloat = 4
+    private let maxBlockHeight: CGFloat = 80
 
     // UserDefaults key for the all-time best pile height (in scene-pt).
     private let bestHeightKey = "MailbagScene.bestPileHeight"
@@ -97,6 +100,8 @@ final class MailbagScene: SKScene {
         chalkMark?.path = chalkPath()
         if let block = compactedBlock {
             block.position.x = size.width / 2
+            // Width may have changed — rebuild the block's physics body.
+            updateBlockPhysics()
         }
     }
 
@@ -161,6 +166,27 @@ final class MailbagScene: SKScene {
         compactedDivider = divider
     }
 
+    /// Build a static physics body matching the current block visual so dynamic
+    /// letters land on top of the block rather than falling through it to the
+    /// floor. Called every time block.size changes.
+    private func updateBlockPhysics() {
+        guard let block = compactedBlock else { return }
+        if block.size.height < 0.5 {
+            block.physicsBody = nil
+            return
+        }
+        // Block has anchor (0.5, 0) so its local origin is the bottom-center.
+        // The body must be centered at (0, height/2) to align with the visual.
+        let body = SKPhysicsBody(
+            rectangleOf: block.size,
+            center: CGPoint(x: 0, y: block.size.height / 2)
+        )
+        body.isDynamic = false
+        body.friction = 0.9
+        body.restitution = 0.05
+        block.physicsBody = body
+    }
+
     private func updateCompactedDivider() {
         guard let block = compactedBlock, let divider = compactedDivider else { return }
         if block.size.height <= 0.5 {
@@ -177,14 +203,15 @@ final class MailbagScene: SKScene {
 
     // MARK: - Adding letters
 
-    /// Repopulate the scene. `seen` letters appear at rest at the bottom (no
-    /// fall animation — the user already watched these drop on a prior open).
-    /// `new` letters drop in from above with a staggered fall.
+    /// Repopulate the scene. `seen` letters appear at rest above the compacted
+    /// block (no fall animation — the user already watched these drop on a prior
+    /// open). `new` letters drop in from above with a staggered fall.
     ///
-    /// If the count of `seen` letters alone would overflow the visible heap,
-    /// the oldest are merged into the static compacted block up front so the
-    /// runtime overflow detector doesn't have to chew through them one frame
-    /// at a time post-open.
+    /// Layout strategy: cap visible individual letters at `maxVisibleLetters` so
+    /// the pile never needs to spawn letters above the visible window. Anything
+    /// beyond the cap folds into the compacted block. The block grows at
+    /// `blockHeightPerLetter` per merged letter (half the visual letter pitch),
+    /// up to `maxBlockHeight`, so a heavy week stays visually contained.
     func reload(seen: [Letter], new: [Letter]) {
         letterOrder.forEach { $0.removeFromParent() }
         letterOrder.removeAll()
@@ -193,19 +220,24 @@ final class MailbagScene: SKScene {
         let sortedSeen = seen.sorted { $0.dateEarned < $1.dateEarned }
         let sortedNew = new.sorted { $0.dateEarned < $1.dateEarned }
 
-        // Pre-compact: any seen letters that wouldn't fit fold into the block.
-        let visibleCap = max(0, Int(size.height * overflowFraction / max(effectiveLetterHeight, 1)))
-        let preCompactCount = max(0, sortedSeen.count - visibleCap)
-        if preCompactCount > 0, let block = compactedBlock {
-            block.size = CGSize(width: size.width,
-                                height: CGFloat(preCompactCount) * letterSize.height)
+        // Carve out room for new letters first (they're the focus). The rest
+        // of the visible budget goes to recent seen letters; older seen ones
+        // fold into the compacted block.
+        let visibleSeenCount = max(0, min(maxVisibleLetters - sortedNew.count, sortedSeen.count))
+        let compactedCount = sortedSeen.count - visibleSeenCount
+        let blockHeight = min(maxBlockHeight, CGFloat(compactedCount) * blockHeightPerLetter)
+        if let block = compactedBlock {
+            block.size = CGSize(width: size.width, height: blockHeight)
         }
+        updateBlockPhysics()
         updateCompactedDivider()
 
-        let visibleSeen = Array(sortedSeen.dropFirst(preCompactCount))
-        let baseY = (compactedBlock?.size.height ?? 0) + effectiveLetterHeight / 2
+        // visibleSeen = the most-recent N seen letters (oldest go into block).
+        let visibleSeen = Array(sortedSeen.suffix(visibleSeenCount))
+        // 2pt margin above the block top so dynamic bodies don't intersect the
+        // newly-installed static block body and get shoved.
+        let baseY = blockHeight + effectiveLetterHeight / 2 + 2
 
-        // Place visible seen at calculated stack positions with a small x-jitter.
         for (i, _) in visibleSeen.enumerated() {
             let y = baseY + CGFloat(i) * effectiveLetterHeight
             let xJitter = CGFloat.random(in: -18...18)
@@ -338,29 +370,24 @@ final class MailbagScene: SKScene {
 
     override func update(_ currentTime: TimeInterval) {
         super.update(currentTime)
-        // Early-out on empty pile — avoid per-frame O(N) work and any
-        // possible empty-scene render pathology while idle.
         guard !letterOrder.isEmpty, size.height > 0 else { return }
 
-        // Only count letters inside the visible area. A mid-air falling letter
-        // that just spawned at y = size.height + 24 is a projectile heading
-        // toward the pile, not part of the pile itself — counting its transient
-        // y here would falsely trip the overflow detector every frame for the
-        // ~30 frames it takes to fall in, and sweep every existing letter into
-        // the compacted block before the new one even lands.
+        // Track peak settled-pile height for the chalk-mark. Letters above the
+        // window (mid-air projectiles) don't count toward "pile height".
         var topY: CGFloat = 0
         for n in letterOrder where n.position.y <= size.height && n.position.y > topY {
             topY = n.position.y
         }
-
         if topY > bestPileHeight {
             bestPileHeight = topY
             UserDefaults.standard.set(Double(topY), forKey: bestHeightKey)
             updateChalkMarkPosition()
         }
 
-        // Overflow: oldest letters merge into the static compacted block at the bottom.
-        if topY > size.height * overflowFraction {
+        // Overflow trigger: count-based, not height-based. Spawning a new letter
+        // briefly pushes letterOrder.count to maxVisibleLetters+1; we compact
+        // the oldest exactly once and return to the cap. No cascade.
+        if letterOrder.count > maxVisibleLetters {
             compactOldestLetter()
         }
     }
@@ -371,8 +398,10 @@ final class MailbagScene: SKScene {
         letterOrder.removeFirst()
 
         if let block = compactedBlock {
-            block.size = CGSize(width: size.width, height: block.size.height + letterSize.height)
+            let newHeight = min(maxBlockHeight, block.size.height + blockHeightPerLetter)
+            block.size = CGSize(width: size.width, height: newHeight)
         }
+        updateBlockPhysics()
         updateCompactedDivider()
         onCountsChanged?()
     }
