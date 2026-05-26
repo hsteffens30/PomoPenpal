@@ -34,9 +34,14 @@ final class MailbagScene: SKScene {
     private let gravityY: CGFloat = -4.5  // gentler than default so the fall reads as a settle, not a streak
     private let letterDensity: CGFloat = 1.2
     private let letterRestitution: CGFloat = 0.05  // letters thud, no bounce
-    private let letterFriction: CGFloat = 0.7
-    private let letterLinearDamping: CGFloat = 0.5
-    private let letterAngularDamping: CGFloat = 0.7
+    private let letterFriction: CGFloat = 0.85
+    private let letterLinearDamping: CGFloat = 0.85    // higher so window-drag slosh dies out quickly
+    private let letterAngularDamping: CGFloat = 0.9    // higher so letters barely tumble when jostled
+
+    // How strongly window-drag deltas translate into impulses on the heap.
+    // Lower = subtler, slower-feeling reaction; raise toward 1.0 for a more
+    // dramatic slosh.
+    private let windowImpulseScale: CGFloat = 0.10
 
     // Layout: stack letters in N side-by-side columns. With 140pt letters on a
     // 360pt window, 2 columns is the natural max (3 would need 420pt). Per-
@@ -363,7 +368,7 @@ final class MailbagScene: SKScene {
     /// Convert a window-move delta into an impulse on every dynamic letter so the
     /// pile leans and resettles in the opposite direction (inertia).
     func applyWindowMoveImpulse(dx: CGFloat, dy: CGFloat) {
-        let impulse = CGVector(dx: -dx * 0.35, dy: -dy * 0.35)
+        let impulse = CGVector(dx: -dx * windowImpulseScale, dy: -dy * windowImpulseScale)
         for node in letterOrder {
             node.physicsBody?.applyImpulse(impulse)
         }
