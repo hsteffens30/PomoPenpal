@@ -34,14 +34,14 @@ final class MailbagScene: SKScene {
     private let gravityY: CGFloat = -4.5  // gentler than default so the fall reads as a settle, not a streak
     private let letterDensity: CGFloat = 1.2
     private let letterRestitution: CGFloat = 0.05  // letters thud, no bounce
-    private let letterFriction: CGFloat = 0.85
-    private let letterLinearDamping: CGFloat = 0.85    // higher so window-drag slosh dies out quickly
-    private let letterAngularDamping: CGFloat = 0.9    // higher so letters barely tumble when jostled
+    private let letterFriction: CGFloat = 0.6
+    private let letterLinearDamping: CGFloat = 0.7    // higher so window-drag slosh dies out quickly
+    private let letterAngularDamping: CGFloat = 0.7    // default so letters tumble when jostled
 
     // How strongly window-drag deltas translate into impulses on the heap.
     // Lower = subtler, slower-feeling reaction; raise toward 1.0 for a more
     // dramatic slosh.
-    private let windowImpulseScale: CGFloat = 0.10
+    private let windowImpulseScale: CGFloat = 0.15
 
     // Layout: stack letters in N side-by-side columns. With 140pt letters on a
     // 360pt window, 2 columns is the natural max (3 would need 420pt). Per-
@@ -333,7 +333,9 @@ final class MailbagScene: SKScene {
         // SKShapeNode rather than SKSpriteNode so each letter has a hairline
         // taupe stroke around its cream fill — gives every letter a visible
         // edge regardless of how subtly the back-wall color differs from cream.
-        let node = SKShapeNode(rectOf: letterSize)
+        // Corner radius softens the letter edges so they read as paper/envelope
+        // rather than a sharp tile.
+        let node = SKShapeNode(rectOf: letterSize, cornerRadius: 2)
         node.fillColor = letterFillColor
         node.strokeColor = letterStrokeColor
         node.lineWidth = 1.0
