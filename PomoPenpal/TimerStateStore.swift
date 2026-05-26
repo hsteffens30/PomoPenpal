@@ -2,13 +2,15 @@
 //  TimerStateStore.swift
 //  PomoPenpal
 //
-//  UserDefaults-backed snapshot/restore for the timer. Quitting and reopening
-//  the app picks up at the same phase and remaining time. The restored state
-//  always comes back paused — the user has to click Start to resume, matching
-//  the locked "no auto-advance" decision (#10).
+//  Earlier iterations persisted a snapshot of the running timer (phase +
+//  remaining seconds) to UserDefaults so quitting and reopening would resume
+//  mid-cycle. The current design opens to a fresh idle page on every launch
+//  by request, so save/restore is no longer wired up.
 //
-//  `completedInCycle` is deliberately NOT persisted — by design that counter
-//  resets on every app launch (it represents "since opening the window").
+//  The legacy keys are removed on launch via `clearPersistedTimerState()` so
+//  no stale data sticks around in UserDefaults for users upgrading from an
+//  older build. Persisted SwiftData (letters in the album) is separate and
+//  unaffected.
 //
 
 import Foundation
@@ -16,39 +18,13 @@ import Foundation
 enum TimerStateStore {
     private static let phaseKey      = "TimerState.phase"
     private static let secondsKey    = "TimerState.secondsRemaining"
+    // Older builds also wrote this — clear it on launch for users upgrading.
+    private static let legacyCompletedKey = "TimerState.completedWorkSessions"
 
-    static func save(_ engine: TimerEngine) {
+    static func clearPersistedTimerState() {
         let d = UserDefaults.standard
-        d.set(rawValue(for: engine.phase), forKey: phaseKey)
-        d.set(engine.secondsRemaining, forKey: secondsKey)
-    }
-
-    static func restore(into engine: TimerEngine) {
-        let d = UserDefaults.standard
-        // If we've never persisted, leave the engine at its default idle state.
-        guard d.object(forKey: phaseKey) != nil else { return }
-        engine.phase = phase(forRaw: d.string(forKey: phaseKey)) ?? .idle
-        engine.secondsRemaining = max(0, d.integer(forKey: secondsKey))
-        engine.isRunning = false  // always restore paused
-        // completedInCycle stays at its initialized 0 — by design.
-    }
-
-    private static func rawValue(for phase: TimerEngine.Phase) -> String {
-        switch phase {
-        case .idle:       return "idle"
-        case .working:    return "working"
-        case .shortBreak: return "shortBreak"
-        case .longBreak:  return "longBreak"
-        }
-    }
-
-    private static func phase(forRaw raw: String?) -> TimerEngine.Phase? {
-        switch raw {
-        case "idle":       return .idle
-        case "working":    return .working
-        case "shortBreak": return .shortBreak
-        case "longBreak":  return .longBreak
-        default:           return nil
-        }
+        d.removeObject(forKey: phaseKey)
+        d.removeObject(forKey: secondsKey)
+        d.removeObject(forKey: legacyCompletedKey)
     }
 }

@@ -45,7 +45,9 @@ final class TimerEngine {
     /// Fired exactly once each time a work session ends (work → break transition).
     /// Not fired when Skip is pressed from the idle state.
     var onWorkSessionComplete: ((Date) -> Void)?
-    /// Fired after every state change so the host can persist to UserDefaults.
+    /// Fired after every state change. Currently unused — the host opens fresh
+    /// on every launch by design — but left as a hook for any future host that
+    /// wants to react to state transitions (e.g. analytics, persistence).
     var onStateChanged: (() -> Void)?
 
     private var timer: Timer?

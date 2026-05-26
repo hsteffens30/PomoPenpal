@@ -29,7 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ChimePlayer.soundEnabledKey: true
         ])
         setupModelContainer()
-        TimerStateStore.restore(into: engine)
+        // Timer state intentionally NOT restored on launch — opening the app
+        // always starts at a fresh idle/25:00 page. Persisted SwiftData
+        // (letters) is unaffected; only the running-timer snapshot is dropped.
+        TimerStateStore.clearPersistedTimerState()
         setupStatusItem()
         setupWindow()
 
@@ -40,10 +43,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self else { return }
             self.recordCompletedLetter(at: date)
             self.chime.playWorkEnd()
-        }
-        engine.onStateChanged = { [weak self] in
-            guard let self else { return }
-            TimerStateStore.save(self.engine)
         }
         refreshStatusItemTitle()
 
