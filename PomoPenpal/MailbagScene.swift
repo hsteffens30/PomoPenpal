@@ -38,11 +38,17 @@ final class MailbagScene: SKScene {
     private let letterLinearDamping: CGFloat = 0.5
     private let letterAngularDamping: CGFloat = 0.7
 
-    // Overflow management. A cap on visible individual letters keeps the pile
-    // from spawning letters above the visible window — anything beyond the cap
-    // folds into a compacted block at the bottom that grows half as fast per
-    // letter as a normal stacked letter would, up to a maxBlockHeight cap.
-    private let maxVisibleLetters: Int = 13
+    // Layout: stack letters in N side-by-side columns. With 140pt letters on a
+    // 360pt window, 2 columns is the natural max (3 would need 420pt). Per-
+    // column cap × column count is the visible cap; anything beyond folds into
+    // the compacted block.
+    private let columnCount: Int = 2
+    private let columnGap: CGFloat = 20
+    private let maxLettersPerColumn: Int = 13
+    private var maxVisibleLetters: Int { columnCount * maxLettersPerColumn }
+
+    // Compacted block: grows half as fast per merged letter as a stacked letter
+    // would, capped at maxBlockHeight so heavy weeks stay visually contained.
     private let blockHeightPerLetter: CGFloat = 4
     private let maxBlockHeight: CGFloat = 80
 
@@ -56,10 +62,6 @@ final class MailbagScene: SKScene {
     private var compactedBlock: SKSpriteNode?
     private var compactedDivider: SKShapeNode?
     private var chalkMark: SKShapeNode?
-
-    // Pluck/drag state.
-    private var dragAnchor: SKNode?
-    private var dragJoint: SKPhysicsJoint?
 
     // Cached peak-height (pixels) for the chalk-mark.
     private var bestPileHeight: CGFloat = 0
@@ -207,11 +209,11 @@ final class MailbagScene: SKScene {
     /// block (no fall animation — the user already watched these drop on a prior
     /// open). `new` letters drop in from above with a staggered fall.
     ///
-    /// Layout strategy: cap visible individual letters at `maxVisibleLetters` so
-    /// the pile never needs to spawn letters above the visible window. Anything
-    /// beyond the cap folds into the compacted block. The block grows at
-    /// `blockHeightPerLetter` per merged letter (half the visual letter pitch),
-    /// up to `maxBlockHeight`, so a heavy week stays visually contained.
+    /// Layout strategy: cap visible individual letters at `maxVisibleLetters`
+    /// (columnCount × maxLettersPerColumn) so the pile never spawns letters
+    /// above the visible window. Anything beyond the cap folds into the
+    /// compacted block. Visible letters distribute round-robin across columns
+    /// so both piles grow in parallel rather than filling one before the next.
     func reload(seen: [Letter], new: [Letter]) {
         letterOrder.forEach { $0.removeFromParent() }
         letterOrder.removeAll()
@@ -238,23 +240,31 @@ final class MailbagScene: SKScene {
         // newly-installed static block body and get shoved.
         let baseY = blockHeight + effectiveLetterHeight / 2 + 2
 
+        // Distribute visible-seen across columns round-robin so both stacks
+        // grow in parallel and visually balance. Per-column stack indices
+        // track how many letters have been placed in each column.
+        var perColumnStackIndex = Array(repeating: 0, count: columnCount)
         for (i, _) in visibleSeen.enumerated() {
-            let y = baseY + CGFloat(i) * effectiveLetterHeight
-            let xJitter = CGFloat.random(in: -18...18)
+            let column = i % columnCount
+            let stackIndex = perColumnStackIndex[column]
+            perColumnStackIndex[column] += 1
+            let y = baseY + CGFloat(stackIndex) * effectiveLetterHeight
             spawnLetterSprite(
-                at: CGPoint(x: clampedX(size.width / 2 + xJitter), y: y),
+                at: CGPoint(x: spawnX(forColumn: column), y: y),
                 rotation: CGFloat.random(in: -0.04...0.04)
             )
         }
 
         // Drop new letters with stagger so they pile rather than co-spawn.
+        // Each one picks whichever column currently has the fewest live letters
+        // so the two columns stay roughly even as the week fills up.
         for (i, _) in sortedNew.enumerated() {
             let delay = SKAction.wait(forDuration: Double(i) * 0.06)
             let spawn = SKAction.run { [weak self] in
                 guard let self else { return }
-                let xJitter = CGFloat.random(in: -26...26)
+                let column = self.columnWithFewestLive()
                 self.spawnLetterSprite(
-                    at: CGPoint(x: self.clampedX(self.size.width / 2 + xJitter),
+                    at: CGPoint(x: self.spawnX(forColumn: column),
                                 y: self.size.height + 24),
                     rotation: CGFloat.random(in: -0.09...0.09)
                 )
@@ -267,12 +277,51 @@ final class MailbagScene: SKScene {
 
     /// Drop a single new letter into a live scene (mid-session work-end).
     func dropOneLetter() {
-        let xJitter = CGFloat.random(in: -26...26)
+        let column = columnWithFewestLive()
         spawnLetterSprite(
-            at: CGPoint(x: clampedX(size.width / 2 + xJitter), y: size.height + 24),
+            at: CGPoint(x: spawnX(forColumn: column), y: size.height + 24),
             rotation: CGFloat.random(in: -0.09...0.09)
         )
         onCountsChanged?()
+    }
+
+    // MARK: - Column geometry
+
+    /// Center x of a column index. Both columns are horizontally centered as a
+    /// group within the scene width.
+    private func columnCenterX(_ column: Int) -> CGFloat {
+        let totalLettersWidth = CGFloat(columnCount) * letterSize.width
+        let totalGapWidth = CGFloat(max(0, columnCount - 1)) * columnGap
+        let groupWidth = totalLettersWidth + totalGapWidth
+        let leftMargin = (size.width - groupWidth) / 2
+        return leftMargin + CGFloat(column) * (letterSize.width + columnGap) + letterSize.width / 2
+    }
+
+    /// Spawn x for a column with a small horizontal jitter that stays well
+    /// inside the column's lane (no leaking into the neighboring column).
+    private func spawnX(forColumn column: Int) -> CGFloat {
+        let jitter = CGFloat.random(in: -3...3)
+        return clampedX(columnCenterX(column) + jitter)
+    }
+
+    /// Best-matching column for a live letter based on its current x position.
+    private func columnFor(_ node: SKNode) -> Int {
+        let x = node.position.x
+        var best = 0
+        var bestDist = CGFloat.greatestFiniteMagnitude
+        for c in 0..<columnCount {
+            let d = abs(x - columnCenterX(c))
+            if d < bestDist { bestDist = d; best = c }
+        }
+        return best
+    }
+
+    private func columnWithFewestLive() -> Int {
+        var counts = Array(repeating: 0, count: columnCount)
+        for node in letterOrder {
+            counts[columnFor(node)] += 1
+        }
+        return counts.indices.min(by: { counts[$0] < counts[$1] }) ?? 0
     }
 
     private func spawnLetterSprite(at position: CGPoint, rotation: CGFloat) {
@@ -318,52 +367,6 @@ final class MailbagScene: SKScene {
         for node in letterOrder {
             node.physicsBody?.applyImpulse(impulse)
         }
-    }
-
-    // MARK: - Pluck-and-hold
-
-    override func mouseDown(with event: NSEvent) {
-        let p = event.location(in: self)
-        // Letters are SKShapeNodes (not SKSpriteNodes) — match against the
-        // tracked node array by reference identity rather than casting.
-        let hits = nodes(at: p)
-        guard let target = hits.first(where: { letterOrder.contains($0) }),
-              let body = target.physicsBody else { return }
-
-        let anchor = SKNode()
-        anchor.position = p
-        let anchorBody = SKPhysicsBody(circleOfRadius: 0.5)
-        anchorBody.isDynamic = false
-        anchor.physicsBody = anchorBody
-        addChild(anchor)
-
-        let joint = SKPhysicsJointSpring.joint(withBodyA: body,
-                                               bodyB: anchorBody,
-                                               anchorA: p,
-                                               anchorB: p)
-        joint.frequency = 14
-        joint.damping = 3
-        physicsWorld.add(joint)
-
-        dragAnchor = anchor
-        dragJoint = joint
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        dragAnchor?.position = event.location(in: self)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        releaseDrag()
-    }
-
-    private func releaseDrag() {
-        if let joint = dragJoint {
-            physicsWorld.remove(joint)
-            dragJoint = nil
-        }
-        dragAnchor?.removeFromParent()
-        dragAnchor = nil
     }
 
     // MARK: - Per-frame work
