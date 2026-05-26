@@ -33,7 +33,7 @@ final class MailbagScene: SKScene {
     // Physics tuning
     private let gravityY: CGFloat = -4.5  // gentler than default so the fall reads as a settle, not a streak
     private let letterDensity: CGFloat = 1.2
-    private let letterRestitution: CGFloat = 0.05  // letters thud, no bounce
+    private let letterRestitution: CGFloat = 0.4   // noticeable bounce on landing; dampers keep it brief
     private let letterFriction: CGFloat = 0.6
     private let letterLinearDamping: CGFloat = 0.7    // higher so window-drag slosh dies out quickly
     private let letterAngularDamping: CGFloat = 0.7    // default so letters tumble when jostled
@@ -335,7 +335,7 @@ final class MailbagScene: SKScene {
         // edge regardless of how subtly the back-wall color differs from cream.
         // Corner radius softens the letter edges so they read as paper/envelope
         // rather than a sharp tile.
-        let node = SKShapeNode(rectOf: letterSize, cornerRadius: 2)
+        let node = SKShapeNode(rectOf: letterSize, cornerRadius: 3.5)
         node.fillColor = letterFillColor
         node.strokeColor = letterStrokeColor
         node.lineWidth = 1.0
