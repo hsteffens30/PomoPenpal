@@ -35,7 +35,7 @@ struct TimerView: View {
             .buttonStyle(.bordered)
             .tint(Palette.ink(for: engine.phase))
 
-            Text("Completed: \(engine.completedWorkSessions)")
+            Text("Completed: \(engine.completedInCycle) / 4")
                 .font(.caption2)
                 .foregroundStyle(Palette.ink(for: engine.phase).opacity(0.55))
         }

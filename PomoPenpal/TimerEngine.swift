@@ -35,7 +35,11 @@ final class TimerEngine {
     var phase: Phase = .idle
     var secondsRemaining: Int = Phase.working.durationSeconds
     var isRunning: Bool = false
-    var completedWorkSessions: Int = 0
+    /// Work sessions completed in the current Pomodoro cycle (0–4). Resets to 0
+    /// after a long break finishes (i.e. when the next work phase is queued) and
+    /// also resets on every app launch — it's a "this-cycle progress" indicator,
+    /// not a lifetime counter.
+    var completedInCycle: Int = 0
 
     var onTick: (() -> Void)?
     /// Fired exactly once each time a work session ends (work → break transition).
@@ -75,7 +79,7 @@ final class TimerEngine {
         isRunning = false
         phase = .idle
         secondsRemaining = Phase.working.durationSeconds
-        completedWorkSessions = 0
+        completedInCycle = 0
         onTick?()
         onStateChanged?()
     }
@@ -121,9 +125,13 @@ final class TimerEngine {
         let wasWorking = phase == .working
         switch phase {
         case .idle, .working:
-            completedWorkSessions += 1
-            phase = (completedWorkSessions % 4 == 0) ? .longBreak : .shortBreak
-        case .shortBreak, .longBreak:
+            completedInCycle += 1
+            phase = (completedInCycle >= 4) ? .longBreak : .shortBreak
+        case .shortBreak:
+            phase = .working
+        case .longBreak:
+            // Cycle complete — start the next one at zero.
+            completedInCycle = 0
             phase = .working
         }
         secondsRemaining = phase.durationSeconds

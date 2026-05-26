@@ -33,7 +33,7 @@ final class MailbagScene: SKScene {
     // Physics tuning
     private let gravityY: CGFloat = -4.5  // gentler than default so the fall reads as a settle, not a streak
     private let letterDensity: CGFloat = 1.2
-    private let letterRestitution: CGFloat = 0.4   // noticeable bounce on landing; dampers keep it brief
+    private let letterRestitution: CGFloat = 0.7   // noticeable bounce on landing; dampers keep it brief
     private let letterFriction: CGFloat = 0.6
     private let letterLinearDamping: CGFloat = 0.7    // higher so window-drag slosh dies out quickly
     private let letterAngularDamping: CGFloat = 0.7    // default so letters tumble when jostled
@@ -256,7 +256,7 @@ final class MailbagScene: SKScene {
             let y = baseY + CGFloat(stackIndex) * effectiveLetterHeight
             spawnLetterSprite(
                 at: CGPoint(x: spawnX(forColumn: column), y: y),
-                rotation: CGFloat.random(in: -0.04...0.04)
+                rotation: CGFloat.random(in: -0.12...0.12)
             )
         }
 
@@ -271,7 +271,7 @@ final class MailbagScene: SKScene {
                 self.spawnLetterSprite(
                     at: CGPoint(x: self.spawnX(forColumn: column),
                                 y: self.size.height + 24),
-                    rotation: CGFloat.random(in: -0.09...0.09)
+                    rotation: CGFloat.random(in: -0.16...0.16)
                 )
             }
             run(SKAction.sequence([delay, spawn]))
@@ -302,10 +302,11 @@ final class MailbagScene: SKScene {
         return leftMargin + CGFloat(column) * (letterSize.width + columnGap) + letterSize.width / 2
     }
 
-    /// Spawn x for a column with a small horizontal jitter that stays well
-    /// inside the column's lane (no leaking into the neighboring column).
+    /// Spawn x for a column with horizontal jitter that stays inside the column
+    /// lane (no leaking into the neighboring column). Larger range = more
+    /// irregular stacking, which reads as a more organic pile.
     private func spawnX(forColumn column: Int) -> CGFloat {
-        let jitter = CGFloat.random(in: -3...3)
+        let jitter = CGFloat.random(in: -12...12)
         return clampedX(columnCenterX(column) + jitter)
     }
 

@@ -7,19 +7,20 @@
 //  always comes back paused — the user has to click Start to resume, matching
 //  the locked "no auto-advance" decision (#10).
 //
+//  `completedInCycle` is deliberately NOT persisted — by design that counter
+//  resets on every app launch (it represents "since opening the window").
+//
 
 import Foundation
 
 enum TimerStateStore {
     private static let phaseKey      = "TimerState.phase"
     private static let secondsKey    = "TimerState.secondsRemaining"
-    private static let completedKey  = "TimerState.completedWorkSessions"
 
     static func save(_ engine: TimerEngine) {
         let d = UserDefaults.standard
         d.set(rawValue(for: engine.phase), forKey: phaseKey)
         d.set(engine.secondsRemaining, forKey: secondsKey)
-        d.set(engine.completedWorkSessions, forKey: completedKey)
     }
 
     static func restore(into engine: TimerEngine) {
@@ -28,8 +29,8 @@ enum TimerStateStore {
         guard d.object(forKey: phaseKey) != nil else { return }
         engine.phase = phase(forRaw: d.string(forKey: phaseKey)) ?? .idle
         engine.secondsRemaining = max(0, d.integer(forKey: secondsKey))
-        engine.completedWorkSessions = max(0, d.integer(forKey: completedKey))
         engine.isRunning = false  // always restore paused
+        // completedInCycle stays at its initialized 0 — by design.
     }
 
     private static func rawValue(for phase: TimerEngine.Phase) -> String {

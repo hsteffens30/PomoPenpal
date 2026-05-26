@@ -16,6 +16,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let chime = ChimePlayer()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Single-instance guard: if another PomoPenpal is already running,
+        // surface it and exit this one rather than running two copies that
+        // would race over the same SwiftData store and UserDefaults.
+        if let existing = otherRunningInstance() {
+            existing.activate()
+            NSApp.terminate(nil)
+            return
+        }
+
         UserDefaults.standard.register(defaults: [
             ChimePlayer.soundEnabledKey: true
         ])
@@ -41,6 +50,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Show the window on launch (alongside the menu-bar entry).
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Returns another running app with this app's bundle identifier, if any.
+    /// Used to enforce single-instance behavior so a second launch doesn't
+    /// stomp on the first's SwiftData store, UserDefaults, or status item.
+    private func otherRunningInstance() -> NSRunningApplication? {
+        let myPid = ProcessInfo.processInfo.processIdentifier
+        let myBundleID = Bundle.main.bundleIdentifier
+        return NSWorkspace.shared.runningApplications.first { app in
+            app.bundleIdentifier == myBundleID && app.processIdentifier != myPid
+        }
     }
 
     private func setupModelContainer() {
