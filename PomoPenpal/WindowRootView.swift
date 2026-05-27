@@ -12,6 +12,7 @@ import SwiftUI
 
 struct WindowRootView: View {
     let engine: TimerEngine
+    let taskList: TaskListModel
 
     enum Page { case timer, album }
 
@@ -21,7 +22,7 @@ struct WindowRootView: View {
         ZStack {
             switch page {
             case .timer:
-                TimerView(engine: engine, onShowAlbum: showAlbum)
+                TimerView(engine: engine, taskList: taskList, onShowAlbum: showAlbum)
                     .transition(.move(edge: .top).combined(with: .opacity))
             case .album:
                 AlbumView(onShowTimer: showTimer)
@@ -55,6 +56,6 @@ struct WindowRootView: View {
 }
 
 #Preview {
-    WindowRootView(engine: TimerEngine())
+    WindowRootView(engine: TimerEngine(), taskList: TaskListModel())
         .frame(width: 360, height: 240)
 }

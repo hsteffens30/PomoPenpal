@@ -10,6 +10,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private let engine = TimerEngine()
+    private let taskList = TaskListModel()
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
     private var modelContainer: ModelContainer!
@@ -106,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func setupWindow() {
-        let root = WindowRootView(engine: engine)
+        let root = WindowRootView(engine: engine, taskList: taskList)
             .modelContainer(modelContainer)
         let hosting = NSHostingController(rootView: root)
 

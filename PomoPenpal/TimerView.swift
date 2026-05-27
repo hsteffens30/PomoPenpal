@@ -7,15 +7,19 @@ import SwiftUI
 
 struct TimerView: View {
     let engine: TimerEngine
+    let taskList: TaskListModel
     var onShowAlbum: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 10) {
             Text(engine.phase.label)
                 .font(.callout)
                 .textCase(.uppercase)
                 .tracking(2)
                 .foregroundStyle(Palette.ink(for: engine.phase).opacity(0.75))
+
+            TaskListView(model: taskList, phase: engine.phase)
+                .frame(maxWidth: 280)
 
             Text(engine.formattedTime)
                 .font(.system(size: 52, weight: .light, design: .rounded))
@@ -62,6 +66,6 @@ struct TimerView: View {
 }
 
 #Preview("Idle") {
-    TimerView(engine: TimerEngine(), onShowAlbum: {})
+    TimerView(engine: TimerEngine(), taskList: TaskListModel(), onShowAlbum: {})
         .frame(width: 360, height: 240)
 }
