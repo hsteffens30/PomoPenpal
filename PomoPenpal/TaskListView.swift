@@ -2,10 +2,9 @@
 //  TaskListView.swift
 //  PomoPenpal
 //
-//  Session task input that lives between the phase label and the timer.
-//  Renders 1–3 rows from TaskListModel. Each row has a check-circle, a
-//  text field, and an × delete button. Tapping the circle slaps a small
-//  green postage-stamp on the row and fades it out.
+//  Single-task input shown between the phase label and the timer. Tapping
+//  the check-circle slaps a small green postage-stamp onto the circle's
+//  position and fades the row out.
 //
 
 import SwiftUI
@@ -13,58 +12,14 @@ import SwiftUI
 struct TaskListView: View {
     let model: TaskListModel
     let phase: TimerEngine.Phase
-
-    @FocusState private var focusedID: UUID?
-
-    var body: some View {
-        VStack(spacing: 2) {
-            ForEach(model.tasks) { task in
-                TaskRow(
-                    task: task,
-                    isFirstSlot: task.id == model.tasks.first?.id,
-                    phase: phase,
-                    onTitleChange: { newTitle in
-                        model.update(taskID: task.id, title: newTitle)
-                    },
-                    onSubmit: {
-                        if let newID = model.handleSubmit(from: task.id) {
-                            // Defer focus so the new row exists before we focus it.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
-                                focusedID = newID
-                            }
-                        }
-                    },
-                    onDelete: {
-                        model.removeSlot(taskID: task.id)
-                    },
-                    onMarkDone: {
-                        model.markDone(taskID: task.id)
-                    },
-                    focusBinding: $focusedID
-                )
-                .id(task.id)
-            }
-        }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: model.tasks.map(\.id))
-    }
-}
-
-private struct TaskRow: View {
-    let task: TaskListModel.Task
-    let isFirstSlot: Bool
-    let phase: TimerEngine.Phase
-    let onTitleChange: (String) -> Void
-    let onSubmit: () -> Void
-    let onDelete: () -> Void
-    let onMarkDone: () -> Void
-    let focusBinding: FocusState<UUID?>.Binding
+    /// Focus is owned by the parent (TimerView) so clicking outside the field
+    /// elsewhere on the timer page can dismiss it.
+    var focusBinding: FocusState<Bool>.Binding
 
     /// Local animation state for the slap-in stamp.
     @State private var stampVisible: Bool = false
 
-    private var placeholder: String {
-        isFirstSlot ? "What's the goal for this session?" : "Another task?"
-    }
+    private var task: TaskListModel.Task { model.task }
 
     private var hasContent: Bool {
         !task.title.trimmingCharacters(in: .whitespaces).isEmpty
@@ -74,32 +29,40 @@ private struct TaskRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Check circle: only enabled when there's content to check off
-            // and we're not already mid-animation.
+            // Check circle: only enabled when there's content and we're not
+            // already mid-animation. The stamp overlay covers this spot when
+            // the user marks the task done.
             Button(action: handleCheckTap) {
-                Image(systemName: "circle")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(ink.opacity(hasContent ? 0.65 : 0.3))
-                    .frame(width: 14, height: 14)
-                    .contentShape(Rectangle())
+                ZStack {
+                    Image(systemName: "circle")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(ink.opacity(hasContent ? 0.65 : 0.3))
+                        .opacity(stampVisible ? 0 : 1)
+                    if stampVisible {
+                        GreenDoneStamp()
+                            .transition(.scale(scale: 0.25).combined(with: .opacity))
+                    }
+                }
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!hasContent || stampVisible || task.isCompleting)
 
-            TextField(placeholder, text: Binding(
+            TextField("What's the goal for this session?", text: Binding(
                 get: { task.title },
-                set: onTitleChange
+                set: model.update(title:)
             ))
             .textFieldStyle(.plain)
             .font(.system(size: 11, weight: .regular))
             .foregroundStyle(ink.opacity(0.9))
             .tint(ink)
-            .focused(focusBinding, equals: task.id)
-            .onSubmit(onSubmit)
+            .focused(focusBinding)
+            .onSubmit { focusBinding.wrappedValue = false }
             .disabled(task.isCompleting)
 
             if hasContent {
-                Button(action: onDelete) {
+                Button(action: model.clear) {
                     Image(systemName: "xmark")
                         .font(.system(size: 8, weight: .medium))
                         .foregroundStyle(ink.opacity(0.4))
@@ -110,19 +73,12 @@ private struct TaskRow: View {
                 .disabled(stampVisible || task.isCompleting)
             } else {
                 // Reserve the same horizontal space so the text field doesn't
-                // jump width when × appears.
+                // jump width when × appears or disappears.
                 Color.clear.frame(width: 12, height: 12)
             }
         }
         .padding(.horizontal, 6)
-        .frame(height: 18)
-        .overlay(alignment: .trailing) {
-            if stampVisible {
-                GreenDoneStamp()
-                    .padding(.trailing, 22)
-                    .transition(.scale(scale: 0.25).combined(with: .opacity))
-            }
-        }
+        .frame(height: 20)
         .opacity(task.isCompleting ? 0 : 1)
         .animation(.easeOut(duration: TaskListModel.fadeOutDuration), value: task.isCompleting)
     }
@@ -132,7 +88,12 @@ private struct TaskRow: View {
             stampVisible = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + TaskListModel.stampHoldDuration) {
-            onMarkDone()
+            // Trigger fade-out and slot reset, then hide the stamp so the
+            // re-used row has a clean check-circle again.
+            model.markDone()
+            DispatchQueue.main.asyncAfter(deadline: .now() + TaskListModel.fadeOutDuration + 0.1) {
+                withAnimation(.easeOut(duration: 0.15)) { stampVisible = false }
+            }
         }
     }
 }
@@ -154,16 +115,4 @@ private struct GreenDoneStamp: View {
         }
         .rotationEffect(.degrees(-14))
     }
-}
-
-#Preview {
-    let model = TaskListModel()
-    model.update(taskID: model.tasks[0].id, title: "Wire up TaskListView")
-    return VStack {
-        TaskListView(model: model, phase: .idle)
-            .frame(width: 280)
-            .padding()
-            .background(Palette.cream)
-    }
-    .frame(width: 360, height: 240)
 }

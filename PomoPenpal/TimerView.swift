@@ -10,40 +10,65 @@ struct TimerView: View {
     let taskList: TaskListModel
     var onShowAlbum: (() -> Void)? = nil
 
+    /// Focus for the task input lives here so clicking anywhere else on the
+    /// page can dismiss it.
+    @FocusState private var taskFieldFocused: Bool
+
+    /// macOS tells us whether the hosting window is key. When it isn't (user
+    /// clicked out), the control buttons swap their tint to black so they stay
+    /// readable instead of fading to the muted inactive look macOS applies by
+    /// default.
+    @Environment(\.controlActiveState) private var controlActive
+
+    private var buttonTint: Color {
+        controlActive == .key ? Palette.ink(for: engine.phase) : .black
+    }
+
     var body: some View {
-        VStack(spacing: 10) {
-            Text(engine.phase.label)
-                .font(.callout)
-                .textCase(.uppercase)
-                .tracking(2)
-                .foregroundStyle(Palette.ink(for: engine.phase).opacity(0.75))
+        ZStack {
+            // Background tap target — when the user clicks anywhere that
+            // isn't a control, the task input loses focus (no blinking caret
+            // left behind).
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { taskFieldFocused = false }
 
-            TaskListView(model: taskList, phase: engine.phase)
-                .frame(maxWidth: 280)
+            VStack(spacing: 10) {
+                Text(engine.phase.label)
+                    .font(.callout)
+                    .textCase(.uppercase)
+                    .tracking(2)
+                    .foregroundStyle(Palette.ink(for: engine.phase).opacity(0.75))
 
-            Text(engine.formattedTime)
-                .font(.system(size: 52, weight: .light, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(Palette.ink(for: engine.phase))
+                TaskListView(model: taskList,
+                             phase: engine.phase,
+                             focusBinding: $taskFieldFocused)
+                    .frame(maxWidth: 280)
 
-            HStack(spacing: 8) {
-                Button(engine.isRunning ? "Pause" : "Start") {
-                    engine.isRunning ? engine.pause() : engine.start()
+                Text(engine.formattedTime)
+                    .font(.system(size: 52, weight: .light, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.ink(for: engine.phase))
+
+                HStack(spacing: 8) {
+                    Button(engine.isRunning ? "Pause" : "Start") {
+                        engine.isRunning ? engine.pause() : engine.start()
+                    }
+
+                    Button("Reset") { engine.reset() }
+
+                    Button("Skip") { engine.skip() }
                 }
+                .controlSize(.regular)
+                .buttonStyle(.bordered)
+                .tint(buttonTint)
 
-                Button("Reset") { engine.reset() }
-
-                Button("Skip") { engine.skip() }
+                Text("Completed: \(engine.completedInCycle) / 4")
+                    .font(.caption2)
+                    .foregroundStyle(Palette.ink(for: engine.phase).opacity(0.55))
             }
-            .controlSize(.regular)
-            .buttonStyle(.bordered)
-            .tint(Palette.ink(for: engine.phase))
-
-            Text("Completed: \(engine.completedInCycle) / 4")
-                .font(.caption2)
-                .foregroundStyle(Palette.ink(for: engine.phase).opacity(0.55))
+            .padding(.top, 10)
         }
-        .padding(.top, 12)
         .frame(width: 360, height: 240)
         .background(Palette.background(for: engine.phase))
         // Chevron is overlaid on the bottom edge in empty space so it never
